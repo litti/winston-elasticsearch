@@ -65,7 +65,7 @@ BulkWriter.prototype.flush = function flush() {
     body.push({ index: { _index: index, _type: type, pipeline: this.pipeline } }, doc);
   });
   debug('bulk writer is going to write', body);
-  return this.write(body);
+  return this.write(body, bulk);
 };
 
 BulkWriter.prototype.append = function append(index, type, doc) {
@@ -79,13 +79,16 @@ BulkWriter.prototype.append = function append(index, type, doc) {
       index, type, doc
     });
   } else {
-    this.write([{ index: { _index: index, _type: type, pipeline: this.pipeline } }, doc]);
+    this.write(
+      [{ index: { _index: index, _type: type, pipeline: this.pipeline } }, doc],
+      [{ index, type, doc }]
+    );
   }
 };
 
-BulkWriter.prototype.write = function write(body) {
+BulkWriter.prototype.write = function write(body, pendingEntries) {
   const thiz = this;
-  //console.log('TEST00', body);
+  // console.log('TEST00', body);
   return this.client.bulk({
     body,
     waitForActiveShards: this.waitForActiveShards,
@@ -102,11 +105,13 @@ BulkWriter.prototype.write = function write(body) {
     }
   }).catch((e) => { // prevent [DEP0018] DeprecationWarning
     // rollback this.bulk array
-    const lenSum = thiz.bulk.length + body.length;
+    const lenSum = thiz.bulk.length + pendingEntries.length;
     if (thiz.options.bufferLimit && (lenSum >= thiz.options.bufferLimit)) {
-      thiz.bulk = body.concat(thiz.bulk.slice(0, thiz.options.bufferLimit - body.length));
+      thiz.bulk = pendingEntries.concat(
+        thiz.bulk.slice(0, thiz.options.bufferLimit - pendingEntries.length)
+      );
     } else {
-      thiz.bulk = body.concat(thiz.bulk);
+      thiz.bulk = pendingEntries.concat(thiz.bulk);
     }
     // eslint-disable-next-line no-console
     console.error(e);
